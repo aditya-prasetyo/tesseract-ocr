@@ -39,15 +39,15 @@ def pdf_processing(file_name, jenis_pemindahan,database_pegawai):
     if jenis_pemindahan == "Mutasi":
         x_nip = 135 # semakin besar semakin ke kanan
         y_nip = 745 # semakin besar semakin ke bawah
-        w_nip = x_nip - 50 # semakin besar semakin lebar
-        h_nip = y_nip + 50 # semakin besar semakin tinggi
-        box_nip = (x_nip, y_nip, x_nip + w_nip, y_nip + h_nip)
+        w_nip = 220 # semakin besar semakin lebar
+        h_nip = 1540 # semakin besar semakin tinggi
+        box_nip = (x_nip,y_nip,w_nip,h_nip)
     else:
         x_nip = 130 # semakin besar semakin ke kanan
         y_nip = 700 # semakin besar semakin ke bawah
-        w_nip = x_nip - 50 # semakin besar semakin lebar
-        h_nip = y_nip + 30 # semakin besar semakin tinggi
-        box_nip = (x_nip, y_nip, x_nip + w_nip, y_nip + h_nip)
+        w_nip = 210 # semakin besar semakin lebar
+        h_nip = 1430 # semakin besar semakin tinggi
+        box_nip = (x_nip,y_nip,w_nip,h_nip)
 
     output_crop_dir = os.path.join(current_directory, "cropped_images")
     os.makedirs(output_crop_dir, exist_ok=True)
