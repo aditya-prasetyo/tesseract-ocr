@@ -33,7 +33,14 @@ Untuk Poppler:
 ## Fix Common Issue:
 
 
+
 ### Hasil OCR tidak sesuai: 
+Untuk keperluan debugging bisa comment `#` di bagian `# Menyelesaikan file sementara dan menghapusnya` contoh:
+
+![Gambar rows yang perlu di comment](<media_doc/comment certain rows.png>)
+
+
+
 Pastikan image yang di crop tidak terdapat 2 atau lebih garis horizontal diatas angka seperti ini:
 
 Gambar yang salah
