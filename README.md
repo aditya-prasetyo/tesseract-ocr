@@ -1,6 +1,6 @@
-Panduan Instalasi Requirement
+# Panduan Instalasi Requirement
 
-Langkah-langkah Instalasi:
+## Langkah-langkah Instalasi:
 1. Instalasi Tesseract OCR
 - Unduh Tesseract OCR dari situs resmi
 - Jalankan installer dan ikuti petunjuk instalasi
@@ -29,3 +29,21 @@ Untuk Poppler:
 - Buka Command Prompt baru
 - Ketik tesseract --version untuk memverifikasi instalasi Tesseract
 - Sekarang Python script Anda siap dijalankan dengan library yang membutuhkan Tesseract dan Poppler
+
+## Fix Common Issue:
+
+
+### Hasil OCR tidak sesuai: 
+Pastikan image yang di crop tidak terdapat 2 atau lebih garis horizontal diatas angka seperti ini:
+
+Gambar yang salah
+
+![Gambar yang salah](media_doc/nip__2.png)
+
+
+Gambar yang benar
+
+![Gambar yang benar](media_doc/nip_16265_5.png)
+
+#### Cara Penanganan
+1. Akses file `pdf_processor` pergi ke bagian `# Tentukan koordinat crop berdasarkan jenis pemindahan` sesuaikan koordinat yang ada
