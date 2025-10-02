@@ -105,13 +105,13 @@ def pdf_processing(file_name, jenis_pemindahan,database_pegawai):
 
             # Simpan PDF final menggunakan text NIP, Satker dan Nama
             output_filename = os.path.join(
-                current_directory, "output", file_name, f"{text_nip}_{satker_pegawai}_{nama_pegawai}.pdf")
+                current_directory, "output", file_name, f"{text_nip}__{satker_pegawai}__{nama_pegawai}.pdf")
             with open(output_filename, "wb") as output_pdf:
                 writer.write(output_pdf)
 
             # Menyelesaikan file sementara dan menghapusnya
             print(
-                f"PDF dan gambar berhasil dibuat untuk file: {text_nip}_{satker_pegawai}_{nama_pegawai}.pdf")
+                f"PDF dan gambar berhasil dibuat untuk file: {text_nip}__{satker_pegawai}__{nama_pegawai}.pdf")
             os.remove(output_image_path_nip)
         # write log NIP tidak ditemukan
         if nip_not_found:
