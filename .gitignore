@@ -2,3 +2,4 @@ env
 output/*
 croped_images/*
 database_pegawai_main.xlsx
+*.pdf
