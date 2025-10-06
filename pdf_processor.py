@@ -39,7 +39,7 @@ def pdf_processing(file_name, jenis_pemindahan,database_pegawai):
     if jenis_pemindahan == "Mutasi":
         x_nip = 135 # semakin besar semakin ke kanan
         y_nip = 745 # semakin besar semakin ke bawah
-        w_nip = 220 # semakin besar semakin lebar
+        w_nip = 250 # semakin besar semakin lebar
         h_nip = 1540 # semakin besar semakin tinggi
         box_nip = (x_nip,y_nip,w_nip,h_nip)
     else:
@@ -105,32 +105,36 @@ def pdf_processing(file_name, jenis_pemindahan,database_pegawai):
 
             # Simpan PDF final menggunakan text NIP, Satker dan Nama
             output_filename = os.path.join(
-                current_directory, "output", file_name, f"{text_nip}__{satker_pegawai}__{nama_pegawai}.pdf")
+                current_directory, "output", file_name, f"{text_nip}__{satker_pegawai}__{nama_pegawai}__.pdf")
             with open(output_filename, "wb") as output_pdf:
                 writer.write(output_pdf)
 
             # Menyelesaikan file sementara dan menghapusnya
+            
             print(
                 f"PDF dan gambar berhasil dibuat untuk file: {text_nip}__{satker_pegawai}__{nama_pegawai}.pdf")
-            os.remove(output_image_path_nip)
+            if text_nip:  # Pastikan text_nip tidak kosong
+                os.remove(output_image_path_nip)
+            
+            
         # write log NIP tidak ditemukan
         if nip_not_found:
             with open(os.path.join(current_directory, "output", file_name, "nip_not_found.txt"), "w") as log_file:
                 for nip in nip_not_found:
                     log_file.write(f"NIP tidak ditemukan: {nip}\n")
-        os.rmdir(output_crop_dir)
+
         print("Semua file berhasil dibuat.")
 
 
 if __name__ == "__main__":
-    while True:
-        jenis_pemindahan = input(
-            "Masukkan jenis pemindahan (Mutasi/Promosi): ").strip().capitalize()
-        if jenis_pemindahan in ["Mutasi", "Promosi"]:
-            break
-        else:
-            print("Input tidak valid. Silakan masukkan 'Mutasi' atau 'Promosi'.\n")
-    # jenis_pemindahan = "Mutasi"  # Ubah sesuai kebutuhan
+    # while True:
+    #     jenis_pemindahan = input(
+    #         "Masukkan jenis pemindahan (Mutasi/Promosi): ").strip().capitalize()
+    #     if jenis_pemindahan in ["Mutasi", "Promosi"]:
+    #         break
+    #     else:
+    #         print("Input tidak valid. Silakan masukkan 'Mutasi' atau 'Promosi'.\n")
+    jenis_pemindahan = "Mutasi"  # Ubah sesuai kebutuhan
     file_list = os.listdir("input")
     # Baca database pegawai
     df_pegawai = pd.read_excel('./database_pegawai/database_pegawai_main.xlsx', dtype={'nip': str})

@@ -45,7 +45,7 @@ Untuk Poppler:
 
 
 ### Hasil OCR tidak sesuai: 
-Untuk keperluan debugging bisa comment `#` di bagian `# Menyelesaikan file sementara dan menghapusnya` contoh:
+Untuk keperluan debugging bisa comment `#` di bagian `# Menyelesaikan file sementara dan menghapusnya` bertujuan untuk mengetahui bagaimana hasil tangkapan layar OCR contoh:
 
 ![Gambar rows yang perlu di comment](<media_doc/comment certain rows.png>)
 
