@@ -91,5 +91,7 @@ else
 fi
 
 # --- Jalankan program utama; teruskan semua argumen: ./start.sh --foo bar
+echo "[INFO] Membuat input/ jika belum ada"
+mkdir -p input
 echo "[INFO] Menjalankan: pdf_processor.py $*"
 exec python pdf_processor.py "$@"
