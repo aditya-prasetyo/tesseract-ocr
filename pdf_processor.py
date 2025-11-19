@@ -42,6 +42,13 @@ def pdf_processing(file_name, jenis_pemindahan,database_pegawai):
         w_nip = 250 # semakin besar semakin lebar
         h_nip = 1540 # semakin besar semakin tinggi
         box_nip = (x_nip,y_nip,w_nip,h_nip)
+        
+        x_nama = 280 # semakin besar semakin ke kanan
+        y_nama = 680 # semakin besar semakin ke bawah
+        w_nama = 480 # semakin besar semakin lebar
+        h_nama = 880 # semakin besar semakin tinggi
+        box_nama = (x_nama,y_nama,w_nama,h_nama)
+        
     else:
         x_nip = 130 # semakin besar semakin ke kanan
         y_nip = 700 # semakin besar semakin ke bawah
@@ -73,11 +80,14 @@ def pdf_processing(file_name, jenis_pemindahan,database_pegawai):
 
             # Konversi halaman ke gambar
             images = convert_from_path(
-                input_pdf_path, first_page=i+1, last_page=i+1,poppler_path=os.path.join(current_directory, "dependencies", "poppler", "Library", "bin"))
+                input_pdf_path, first_page=i+1, last_page=i+1,
+                # poppler_path=os.path.join(current_directory, "dependencies", "poppler", "Library", "bin")
+                )
             page_image = images[0]
 
             # Crop area yang dimaksud
             cropped_image_nip = page_image.crop(box_nip)
+            cropped_image_nama = page_image.crop(box_nama)
 
             
             # OCR untuk nama dan NIP
@@ -85,43 +95,37 @@ def pdf_processing(file_name, jenis_pemindahan,database_pegawai):
             text_nip = pytesseract.image_to_string(
                 cropped_image_nip, lang='eng')
             text_nip = re.sub(r'[^0-9]', '', text_nip)
+        
+            text_nama = pytesseract.image_to_string(
+                cropped_image_nama, lang='ind')
             
-            nip_not_found = []
-            
-            # Jika NIP ada di database, ambil nama dan satker yang sesuai
-            if text_nip in database_pegawai.nip.values:
-                nama_pegawai = database_pegawai.loc[database_pegawai['nip'] == text_nip, 'nama'].values[0]
-                satker_pegawai = database_pegawai.loc[database_pegawai['nip'] == text_nip, 'satker'].values[0]
-            else:
-                nip_not_found.append(text_nip)
-            
+            text_satker = file_name
 
             output_image_path_nip = os.path.join(
                 output_crop_dir, f"nip_{text_nip}_{i+1}.png")
+            
+            output_image_path_nama = os.path.join(
+                output_crop_dir, f"nama_{text_nama}_{i+1}.png")
 
             # cropped_image_nama.save(output_image_path_nama)
             cropped_image_nip.save(output_image_path_nip)
+            cropped_image_nama.save(output_image_path_nama)
+            
             
 
             # Simpan PDF final menggunakan text NIP, Satker dan Nama
             output_filename = os.path.join(
-                current_directory, "output", file_name, f"{text_nip}__{satker_pegawai}__{nama_pegawai}__.pdf")
+                current_directory, "output", file_name, f"{text_nip}__{text_satker}__{text_nama}__.pdf")
             with open(output_filename, "wb") as output_pdf:
                 writer.write(output_pdf)
 
             # Menyelesaikan file sementara dan menghapusnya
             
-            print(
-                f"PDF dan gambar berhasil dibuat untuk file: {text_nip}__{satker_pegawai}__{nama_pegawai}.pdf")
-            if text_nip:  # Pastikan text_nip tidak kosong
-                os.remove(output_image_path_nip)
+            # print(
+            #     f"PDF dan gambar berhasil dibuat untuk file: {text_nip}__{satker_pegawai}__{nama_pegawai}.pdf")
+            # if text_nip:  # Pastikan text_nip tidak kosong
+            #     os.remove(output_image_path_nip)
             
-            
-        # write log NIP tidak ditemukan
-        if nip_not_found:
-            with open(os.path.join(current_directory, "output", file_name, "nip_not_found.txt"), "w") as log_file:
-                for nip in nip_not_found:
-                    log_file.write(f"NIP tidak ditemukan: {nip}\n")
 
         print("Semua file berhasil dibuat.")
 
@@ -137,9 +141,8 @@ if __name__ == "__main__":
     jenis_pemindahan = "Mutasi"  # Ubah sesuai kebutuhan
     file_list = os.listdir("input")
     # Baca database pegawai
-    df_pegawai = pd.read_excel('./database_pegawai/database_pegawai_main.xlsx', dtype={'nip': str})
     # df_pegawai.nip = df_pegawai.nip.astype(int).astype(str)
     for file_path in file_list:
         file_name = os.path.splitext(file_path)[0]
         print(f"Processing file: {file_name}")
-        pdf_processing(file_name, jenis_pemindahan,df_pegawai)
+        pdf_processing(file_name, jenis_pemindahan)

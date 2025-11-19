@@ -1,0 +1,412 @@
+"""
+pdf_splitter.py (RENDER_DPI=150) + DEBUG OVERLAY + SLIDING WINDOW PROBE
+
+Pipeline:
+- Fix orientasi halaman (OSD + heuristik).
+- Split (cover + halaman i).
+- Crop area NIP lalu OCR (digit only).
+- Simpan PDF output berdasar NIP (fallback UNKNOWN).
+- Debug overlay: simpan full-page dengan kotak crop + grid.
+- Sliding window probing: coba beberapa variasi kotak bila OCR awal lemah.
+
+Setelan:
+- RENDER_DPI = 150 (lebih ringan).
+- Koordinat crop Mutasi dari pin-point @150 dpi: (194, 1102) .. (381, 1433) → w=187, h=331.
+- COORD_REF_DPI = 150 (koordinat diambil pada 150 dpi), jadi SCALE=1.
+"""
+
+from PyPDF2 import PdfReader, PdfWriter
+from pdf2image import convert_from_path
+from PIL import Image, ImageOps, ImageFilter, ImageDraw, ImageFont
+import os
+import re
+import io
+import platform
+import shutil
+import pytesseract
+import pandas as pd
+from pytesseract import Output
+
+# =========================
+# KONFIGURASI DPI & SCALE
+# =========================
+RENDER_DPI = 150
+COORD_REF_DPI = 150
+SCALE = RENDER_DPI / COORD_REF_DPI  # = 1.0
+
+# =========================
+# DEBUG OVERLAY OPTIONS
+# =========================
+DEBUG_DRAW_OVERLAY = True     # simpan overlay per halaman
+DEBUG_DRAW_GRID = True        # tampilkan grid
+GRID_STEP_PX = 100            # jarak grid
+ALWAYS_SAVE_CROP = False      # True: crop tetap disimpan walau OCR sukses
+
+# =========================================
+# POPPLER RESOLVER (lintas-OS, fokus WSL)
+# =========================================
+def resolve_poppler_path() -> str | None:
+    if shutil.which("pdfinfo") and shutil.which("pdftoppm"):
+        return None
+    sysname = platform.system()
+    if sysname == "Linux":  # termasuk WSL
+        if os.path.exists("/usr/bin/pdfinfo") and os.path.exists("/usr/bin/pdftoppm"):
+            return "/usr/bin"
+        return None
+    if sysname == "Windows":
+        cand = os.path.join(os.getcwd(), "dependencies", "poppler", "Library", "bin")
+        return cand if os.path.exists(cand) else None
+    return None
+
+# ==================================================
+# ORIENTATION FIX HELPERS (PyMuPDF + Tesseract OSD)
+# ==================================================
+try:
+    import fitz  # PyMuPDF
+    _ = fitz.open
+except Exception:
+    import pymupdf as fitz  # fallback
+
+def _render_page_to_pil(page, dpi=RENDER_DPI):
+    mat = fitz.Matrix(dpi/72, dpi/72)
+    pix = page.get_pixmap(matrix=mat, alpha=False)
+    return Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+def _preprocess_for_ocr(img: Image.Image) -> Image.Image:
+    g = img.convert("L")
+    g = ImageOps.autocontrast(g, cutoff=2)
+    g = g.filter(ImageFilter.SHARPEN)
+    return g
+
+def _rotate_cw(img: Image.Image, angle: int) -> Image.Image:
+    a = angle % 360
+    if a == 0:   return img
+    if a == 90:  return img.transpose(Image.ROTATE_270)  # CW 90
+    if a == 180: return img.transpose(Image.ROTATE_180)
+    if a == 270: return img.transpose(Image.ROTATE_90)   # CW 270
+    return img.rotate(360 - a, expand=True)
+
+def _osd_orientation(pil_image: Image.Image):
+    data = pytesseract.image_to_osd(
+        pil_image, output_type=Output.DICT, config="--psm 0", lang="osd"
+    )
+    angle = int(data.get("rotate", 0)) % 360
+    conf  = float(data.get("orientation_confidence", 0))
+    return angle, conf
+
+def _ocr_len(img: Image.Image, lang_ocr="ind+eng", psm=6) -> int:
+    cfg = f"--oem 1 --psm {psm}"
+    pre = _preprocess_for_ocr(img)
+    try:
+        return len(pytesseract.image_to_string(pre, lang=lang_ocr, config=cfg))
+    except pytesseract.TesseractError:
+        try:
+            return len(pytesseract.image_to_string(pre, lang="eng", config=cfg))
+        except Exception:
+            return 0
+    except Exception:
+        return 0
+
+def _decide_best_rotation(img, angle_osd, conf_osd, lang_ocr="ind+eng", heuristic_factor: float = 1.08):
+    candidates = [0, 90, 180, 270]
+    scores = {}
+    for a in candidates:
+        test_img = img if a == 0 else _rotate_cw(img, a)
+        scores[a] = _ocr_len(test_img, lang_ocr=lang_ocr, psm=6)
+    base = scores.get(0, 0)
+    best_angle = max(scores, key=scores.get) if scores else 0
+    margin_ok = scores.get(best_angle, 0) > base * heuristic_factor
+    tie_breaker_ok = (angle_osd == 180 and scores.get(180, 0) >= base * 0.98)
+    if best_angle != 0 and (margin_ok or tie_breaker_ok):
+        return best_angle if margin_ok else 180
+    return 0
+
+def auto_fix_pdf_orientation(input_pdf_path: str,
+                             dpi: int = RENDER_DPI,
+                             conf_threshold: float = 5.0,
+                             lang_ocr: str = "ind+eng",
+                             heuristic_factor: float = 1.08) -> str:
+    src = fitz.open(input_pdf_path)
+    base_dir = os.path.dirname(os.path.abspath(input_pdf_path))
+    out_path = os.path.join(
+        base_dir,
+        os.path.splitext(os.path.basename(input_pdf_path))[0] + "_fixed.pdf"
+    )
+    out = fitz.open()
+    for idx, page in enumerate(src, start=1):
+        pil = _render_page_to_pil(page, dpi=dpi)
+        try:
+            angle_osd, conf_osd = _osd_orientation(pil)
+        except Exception:
+            angle_osd, conf_osd = 0, 0.0
+        if angle_osd in (90, 180, 270) and conf_osd >= conf_threshold:
+            chosen = angle_osd
+        else:
+            chosen = _decide_best_rotation(
+                pil, angle_osd, conf_osd, lang_ocr=lang_ocr, heuristic_factor=heuristic_factor
+            )
+        final_img = _rotate_cw(pil, chosen)
+        buf = io.BytesIO()
+        final_img.save(buf, format="PNG", optimize=True)
+        rect = fitz.Rect(0, 0, final_img.width, final_img.height)
+        tmp = fitz.open()
+        tmp_page = tmp.new_page(width=rect.width, height=rect.height)
+        tmp_page.insert_image(rect, stream=buf.getvalue())
+        out.insert_pdf(tmp)
+    out.save(out_path)
+    out.close()
+    src.close()
+    return out_path
+
+# =========================================
+# UTIL CROP, OVERLAY & OCR NIP
+# =========================================
+def to_box(x: int, y: int, w: int, h: int) -> tuple[int, int, int, int]:
+    return (x, y, x + w, y + h)
+
+def scale_xywh(x, y, w, h, scale=SCALE):
+    return (int(round(x*scale)), int(round(y*scale)),
+            int(round(w*scale)), int(round(h*scale)))
+
+def ocr_nip_from_image(img: Image.Image) -> str:
+    pre = _preprocess_for_ocr(img)
+    cfg = r"--oem 1 --psm 6 -c tessedit_char_whitelist=0123456789"
+    try:
+        txt = pytesseract.image_to_string(pre, lang="eng", config=cfg)
+    except pytesseract.TesseractError:
+        txt = pytesseract.image_to_string(pre, lang="eng")
+    nip = re.sub(r"[^0-9]", "", txt)
+    return nip
+
+def clamp_box(box, W, H):
+    L, T, R, B = box
+    L = max(0, min(L, W)); R = max(0, min(R, W))
+    T = max(0, min(T, H)); B = max(0, min(B, H))
+    if R < L: R = L
+    if B < T: B = T
+    return (L, T, R, B)
+
+def _draw_grid(draw: ImageDraw.ImageDraw, w, h, step=GRID_STEP_PX):
+    for x in range(0, w, step):
+        draw.line([(x, 0), (x, h)], fill=(180, 180, 180), width=1)
+    for y in range(0, h, step):
+        draw.line([(0, y), (w, y)], fill=(180, 180, 180), width=1)
+
+def overlay_page(image: Image.Image, box, label=""):
+    W, H = image.size
+    out = image.copy()
+    d = ImageDraw.Draw(out, "RGBA")
+    if DEBUG_DRAW_GRID:
+        _draw_grid(d, W, H, GRID_STEP_PX)
+    d.rectangle(box, fill=(255, 0, 0, 60), outline=(255, 0, 0, 255), width=4)
+    try:
+        font = ImageFont.load_default()
+    except Exception:
+        font = None
+    L, T, R, B = box
+    text = label or f"({L},{T})-({R},{B}) w={R-L} h={B-T} @ {RENDER_DPI}dpi"
+    label_h = 18
+    d.rectangle([L, max(T-label_h,0), min(L+len(text)*6+10, W-1), T], fill=(255, 0, 0, 180))
+    d.text((L+4, max(T-label_h+2,0)), text, fill=(255, 255, 255, 255), font=font)
+    return out
+
+# ---------- Sliding Window Probe Helpers ----------
+def longest_digit_run(txt: str) -> int:
+    """Skor = panjang run angka terpanjang (mis. 'a1234b56' -> 4)."""
+    runs = [len(m.group(0)) for m in re.finditer(r"\d+", txt or "")]
+    return max(runs) if runs else 0
+
+def crop_box(image: Image.Image, box):
+    W, H = image.size
+    L, T, R, B = clamp_box(box, W, H)
+    if R <= L or B <= T:
+        return None
+    return image.crop((L, T, R, B))
+
+def probe_nip(image: Image.Image, base_box, *,
+              min_digits_run: int = 5,
+              x_shifts=(0, 20, 40, 60, 80, 100, 140),
+              w_expands=(0, 30, 60, 100),
+              y_shifts=(0,), h_expands=(0, 30)):
+    """
+    Coba beberapa variasi kotak: geser kanan & lebarin (+ sedikit vertikal).
+    Kembalikan (nip, used_box, debug_reason).
+    """
+    candidates = []
+    L, T, R, B = base_box
+    base_w, base_h = R - L, B - T
+
+    for dx in x_shifts:
+        for dw in w_expands:
+            for dy in y_shifts:
+                for dh in h_expands:
+                    cand = (L + dx,
+                            T + dy,
+                            L + dx + base_w + dw,
+                            T + dy + base_h + dh)
+                    candidates.append(("dx=%d,dw=%d,dy=%d,dh=%d" % (dx, dw, dy, dh), cand))
+
+    best = ("", base_box, "base")
+    best_score = -1
+
+    for reason, box in candidates:
+        crop = crop_box(image, box)
+        if crop is None:
+            continue
+        txt = ocr_nip_from_image(crop)
+        score = longest_digit_run(txt)
+        if score > best_score:
+            best = (txt, box, reason)
+            best_score = score
+        if score >= min_digits_run:   # early stop jika sudah cukup bagus
+            return txt, box, reason
+
+    return best  # bisa jadi score < min_digits_run, tetap kembalikan terbaik
+
+# =========================================
+# PIPELINE UTAMA
+# =========================================
+def pdf_processing(file_name, jenis_pemindahan, database_pegawai):
+    current_directory = os.getcwd()
+    file_name = f"{file_name}"
+    input_pdf_path = os.path.join(current_directory, "input", f"{file_name}.pdf")
+
+    # STEP-0: perbaiki orientasi (150 dpi)
+    try:
+        input_pdf_path = auto_fix_pdf_orientation(
+            input_pdf_path=input_pdf_path,
+            dpi=RENDER_DPI,
+            conf_threshold=5.0,
+            lang_ocr="ind+eng",
+            heuristic_factor=1.08
+        )
+        print(f"[INFO] Orientation fixed PDF at: {input_pdf_path}")
+    except Exception as e:
+        print(f"[WARN] Orientation fix skipped due to error: {e}. Using original PDF.")
+
+    # Koordinat crop (Mutasi @150 dpi): (194,1102)-(381,1433) → w=187,h=331
+    if jenis_pemindahan == "Mutasi":
+        x_ref, y_ref, w_ref, h_ref = 194, 1102, 187, 331
+    else:
+        # sesuaikan jika punya titik promosi @150 dpi
+        x_ref, y_ref, w_ref, h_ref = 130, 700, 210, 1430
+
+    x_nip, y_nip, w_nip, h_nip = scale_xywh(x_ref, y_ref, w_ref, h_ref, SCALE)
+    base_box_nip = to_box(x_nip, y_nip, w_nip, h_nip)
+
+    # Output dirs
+    output_crop_dir = os.path.join(current_directory, "cropped_images")
+    os.makedirs(output_crop_dir, exist_ok=True)
+    output_satker = os.path.join(current_directory, "output", file_name)
+    os.makedirs(output_satker, exist_ok=True)
+    debug_overlay_dir = os.path.join(current_directory, "debug_overlays")
+    os.makedirs(debug_overlay_dir, exist_ok=True)
+
+    # Baca PDF (gunakan file yang sudah fixed)
+    reader = PdfReader(input_pdf_path)
+    total_pages = len(reader.pages)
+    if total_pages < 2:
+        print("File PDF harus memiliki minimal 2 halaman.")
+        return
+
+    nip_not_found = []
+    page_1 = reader.pages[0]
+
+    # Resolver poppler untuk convert_from_path
+    poppler_path = resolve_poppler_path()
+    if poppler_path == "/usr/bin":
+        os.environ["PATH"] = "/usr/bin:" + os.environ.get("PATH", "")
+
+    for i in range(1, total_pages):
+        writer = PdfWriter()
+        writer.add_page(page_1)
+        writer.add_page(reader.pages[i])
+
+        # Render halaman target ke gambar (150 dpi)
+        images = convert_from_path(
+            input_pdf_path,
+            first_page=i+1,
+            last_page=i+1,
+            dpi=RENDER_DPI,
+            poppler_path=poppler_path
+        )
+        page_image = images[0]
+        W, H = page_image.size
+
+        # Clamp base box agar masuk bounds (lalu dipakai sebagai starting point probing)
+        base_box = clamp_box(base_box_nip, W, H)
+        if base_box != base_box_nip:
+            print(f"[WARN] Page {i+1}: base box dipotong ke bounds: {base_box_nip} -> {base_box}")
+
+        # ---------- PROBING ----------
+        text_nip, used_box, why = probe_nip(
+            page_image,
+            base_box,
+            min_digits_run=5,
+            x_shifts=(0, 20, 40, 60, 80, 100, 140, 180),
+            w_expands=(0, 30, 60, 100, 140),
+            y_shifts=(0,), h_expands=(0, 30)
+        )
+        print(f"[DBG] Page {i+1}: NIP='{text_nip}' via {why} box={used_box}")
+
+        # DEBUG overlay (pakai kotak terpilih)
+        if DEBUG_DRAW_OVERLAY:
+            label = f"NIP {used_box[0]},{used_box[1]}-{used_box[2]},{used_box[3]}  {RENDER_DPI}dpi ({why})"
+            overlay = overlay_page(page_image, used_box, label=label)
+            overlay_path = os.path.join(debug_overlay_dir, f"page_{i+1}_overlay.png")
+            overlay.save(overlay_path)
+
+        # Crop pakai kotak terpilih
+        cropped_image_nip = page_image.crop(used_box)
+
+        # Validasi dengan database
+        if text_nip in database_pegawai.nip.values and text_nip != "":
+            nama_pegawai = database_pegawai.loc[database_pegawai['nip'] == text_nip, 'nama'].values[0]
+            satker_pegawai = database_pegawai.loc[database_pegawai['nip'] == text_nip, 'satker'].values[0]
+            delete_crop = not ALWAYS_SAVE_CROP
+        else:
+            nip_not_found.append(text_nip if text_nip else "(empty)")
+            nama_pegawai = "UNKNOWN"
+            satker_pegawai = "UNKNOWN"
+            delete_crop = False  # simpan crop untuk investigasi
+
+        # Simpan crop bila perlu
+        output_image_path_nip = os.path.join(output_crop_dir, f"nip_{text_nip or 'empty'}_{i+1}.png")
+        if not delete_crop:
+            cropped_image_nip.save(output_image_path_nip)
+
+        # Simpan PDF final
+        output_filename = os.path.join(
+            output_satker, f"{text_nip or 'EMPTY'}__{satker_pegawai}__{nama_pegawai}__.pdf"
+        )
+        with open(output_filename, "wb") as output_pdf:
+            writer.write(output_pdf)
+
+        # Hapus crop jika tidak diperlukan
+        if delete_crop and os.path.exists(output_image_path_nip):
+            try:
+                os.remove(output_image_path_nip)
+            except Exception:
+                pass
+
+        print(f"PDF berhasil dibuat: {os.path.basename(output_filename)}")
+
+    # Tulis log NIP tidak ditemukan bila ada
+    if nip_not_found:
+        log_path = os.path.join(output_satker, "nip_not_found.txt")
+        with open(log_path, "w", encoding="utf-8") as log_file:
+            for nip in nip_not_found:
+                log_file.write(f"NIP tidak ditemukan: {nip}\n")
+        print(f"[INFO] Log NIP tidak ditemukan tersimpan di: {log_path}")
+
+    print("Semua file berhasil dibuat.")
+
+
+if __name__ == "__main__":
+    jenis_pemindahan = "Mutasi"  # Ubah sesuai kebutuhan
+    file_list = os.listdir("input")
+    df_pegawai = pd.read_excel('./database_pegawai/database_pegawai_main.xlsx', dtype={'nip': str})
+    for file_path in file_list:
+        file_name = os.path.splitext(file_path)[0]
+        print(f"Processing file: {file_name}")
+        pdf_processing(file_name, jenis_pemindahan, df_pegawai)
