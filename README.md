@@ -32,14 +32,9 @@ Untuk Poppler:
 - Ketik tesseract --version untuk memverifikasi instalasi Tesseract
 - Sekarang Python script Anda siap dijalankan dengan library yang membutuhkan Tesseract dan Poppler
 
-5. Verifikasi Database
-- Akses directory `database_pegawai`
-- Rename file `template_database_pegawai_main.xlsx` menjadi `database_pegawai_main.xlsx`
-- isi data di file tersebut lalu save
-
-6. Pastikan file tersedia di directory `input`
-7. Pastikan tidak terdapat directory `cropped_images`
-8. klik 2 kali file `start.bat`
+5. Pastikan file tersedia di directory `input`
+6. Pastikan tidak terdapat directory `cropped_images`
+7. klik 2 kali file `start.bat`
 
 ## Fix Common Issue:
 
