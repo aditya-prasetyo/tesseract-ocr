@@ -49,28 +49,31 @@ def pdf_processing(file_name, jenis_pemindahan):
         h_nama = 930 # semakin besar semakin tinggi
         box_nama = (x_nama,y_nama,w_nama,h_nama)
         
+        x_satker = 1300   # semakin besar semakin ke kanan
+        y_satker = 750   # semakin besar semakin ke bawah
+        w_satker = 120   # semakin besar semakin lebar
+        h_satker = 145   # semakin besar semakin tinggi
+        box_satker = (x_satker,y_satker,x_satker + w_satker,y_satker + h_satker)
+        
     else:
         
         x_nip = 180 # semakin besar semakin ke kanan
         y_nip = 580 # semakin besar semakin ke bawah
-        w_nip = 95 # semakin besar semakin lebar
+        w_nip = 140 # semakin besar semakin lebar
         h_nip = 145 # semakin besar semakin tinggi
         box_nip = (x_nip,y_nip,x_nip + w_nip,y_nip + h_nip)
-        print(box_nip)
         
         x_nama = 310 # semakin besar semakin ke kanan
         y_nama = 580 # semakin besar semakin ke bawah
         w_nama = 460 # semakin besar semakin lebar
         h_nama = 145 # semakin besar semakin tinggi
         box_nama = (x_nama,y_nama,x_nama + w_nama,y_nama + h_nama)
-        print(box_nama)
-        
+ 
         x_satker = 980   # semakin besar semakin ke kanan
         y_satker = 550   # semakin besar semakin ke bawah
         w_satker = 260   # semakin besar semakin lebar
         h_satker = 145   # semakin besar semakin tinggi
         box_satker = (x_satker,y_satker,x_satker + w_satker,y_satker + h_satker)
-        print(box_satker)
     output_crop_dir = os.path.join(current_directory, "cropped_images")
     os.makedirs(output_crop_dir, exist_ok=True)
 
@@ -130,19 +133,17 @@ def pdf_processing(file_name, jenis_pemindahan):
             cropped_image_nip.save(output_image_path_nip)
             cropped_image_nama.save(output_image_path_nama)
             
-            if jenis_pemindahan == "Promosi":
-                cropped_image_satker = page_image.crop(box_satker)
-                text_satker = pytesseract.image_to_string(
-                    cropped_image_satker, lang='eng')
-                text_satker = re.sub(r'[^a-zA-Z0-9\-\s]', '', text_satker).strip()
-                text_satker = re.sub(r"\s+", " ", text_satker).strip()
+            
+            cropped_image_satker = page_image.crop(box_satker)
+            text_satker = pytesseract.image_to_string(
+            cropped_image_satker, lang='eng')
+            text_satker = re.sub(r'[^a-zA-Z0-9\-\s]', '', text_satker).strip()
+            text_satker = re.sub(r"\s+", " ", text_satker).strip()
 
                 
-                output_image_path_satker = os.path.join(
-                output_crop_dir, f"satker_{text_satker}_{i+1}.png")
-                cropped_image_satker.save(output_image_path_satker)
-            else:
-                text_satker = file_name
+            output_image_path_satker = os.path.join(
+            output_crop_dir, f"satker_{text_satker}_{i+1}.png")
+            cropped_image_satker.save(output_image_path_satker)
             
             
             
@@ -153,12 +154,6 @@ def pdf_processing(file_name, jenis_pemindahan):
             with open(output_filename, "wb") as output_pdf:
                 writer.write(output_pdf)
 
-            # Menyelesaikan file sementara dan menghapusnya
-            
-            # print(
-            #     f"PDF dan gambar berhasil dibuat untuk file: {text_nip}__{satker_pegawai}__{nama_pegawai}.pdf")
-            # if text_nip:  # Pastikan text_nip tidak kosong
-            #     os.remove(output_image_path_nip)
             
         # menghapus semua file gambar di folder cropped_images
         for temp_file in os.listdir(output_crop_dir):
