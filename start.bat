@@ -169,12 +169,17 @@ python pdf_processor.py %*
 REM Simpan exit code
 set EXITCODE=%ERRORLEVEL%
 
-REM Jika ada error, pause agar user bisa lihat pesan error
-if %EXITCODE% NEQ 0 (
-    echo.
+REM --- TAMBAHKAN INI: Pause agar window tidak langsung close ---
+echo.
+echo ========================================
+if %EXITCODE% EQU 0 (
+    echo [INFO] Program selesai dengan sukses.
+) else (
     echo [ERROR] Program selesai dengan error code: %EXITCODE%
-    pause
 )
+echo ========================================
+echo.
+pause
 
 endlocal
 exit /b %EXITCODE%
