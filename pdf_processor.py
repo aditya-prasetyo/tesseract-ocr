@@ -20,7 +20,6 @@ from PIL import Image
 import os
 import re
 import pytesseract
-import pandas as pd
 
 
 def pdf_processing(file_name, jenis_pemindahan):
